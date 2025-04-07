@@ -23,6 +23,7 @@ func Router() *gin.Engine {
 		user.POST("/tasks", controllers.UserController{}.CreateTask)
 		user.PUT("tasks/:id", controllers.UserController{}.UpdateTask)
 		user.DELETE("tasks/:id", controllers.UserController{}.DeleteTask)
+		user.GET("/weekly-report", controllers.UserController{}.GenerateWeeklyReport)
 		user.GET("/get", func(ctx *gin.Context) {
 			ctx.String(http.StatusOK, "123get")
 		})
@@ -33,7 +34,7 @@ func Router() *gin.Engine {
 	//order路径
 	order := r.Group("/order")
 	{
-		order.POST("list", controllers.OrderController{}.GetList)
+		order.GET("list", controllers.OrderController{}.GetDailyTasks)
 	}
 
 	return r

@@ -16,15 +16,15 @@ var (
 
 type Task struct {
 	gorm.Model
-	Name      string //本周主要工作
-	State     string //任务状态
-	Phone     string
-	Email     string
-	Address   string
-	Content   string    `json:"content"`    //工作详情
-	Done      bool      `json:"done"`       //完成情况
-	Uploader  string    `json:"uploader"`   //负责人
-	Assistant string    `json:"assistant"`  // 新增：辅助人
+	Name      string    `json:"name" gorm:"not null"`
+	State     string    `json:"state" gorm:"default:'pending'"`
+	Phone     string    `json:"phone" gorm:"default:''"`
+	Email     string    `json:"email" gorm:"default:''"`
+	Address   string    `json:"address" gorm:"default:''"`
+	Content   string    `json:"content" `
+	Done      bool      `json:"done" gorm:"default:false"`
+	Uploader  string    `json:"uploader" gorm:"not null"`
+	Assistant string    `json:"assistant" gorm:"default:''"`
 	StartTime time.Time `json:"start_time"` // 新增：任务开始时间
 	EndTime   time.Time `json:"end_time"`   // 新增：任务结束时间
 	TaskType  string    `json:"task_type"`  // 新增：任务类型(巡检/维修等)
