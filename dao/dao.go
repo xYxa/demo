@@ -25,10 +25,10 @@ type Task struct {
 	Done      bool      `json:"done" gorm:"default:false"`
 	Uploader  string    `json:"uploader" gorm:"not null"`
 	Assistant string    `json:"assistant" gorm:"default:''"`
-	StartTime time.Time `json:"start_time"` // 新增：任务开始时间
-	EndTime   time.Time `json:"end_time"`   // 新增：任务结束时间
-	TaskType  string    `json:"task_type"`  // 新增：任务类型(巡检/维修等)
-	Priority  int       `json:"priority"`   // 新增：优先级(1-5)
+	StartTime time.Time `json:"start_time" gorm:"type:timestamp;default:CURRENT_TIMESTAMP"`
+	EndTime   time.Time `json:"end_time" gorm:"type:timestamp;default:(CURRENT_TIMESTAMP + INTERVAL 1 DAY)"` // 新增：任务结束时间
+	TaskType  string    `json:"task_type"`                                                                   // 新增：任务类型(巡检/维修等)
+	Priority  int       `json:"priority"`                                                                    // 新增：优先级(1-5)
 }
 
 func init() {

@@ -18,8 +18,8 @@ type Task struct {
 	Done      bool      `json:"done" gorm:"default:false"`
 	Uploader  string    `json:"uploader" gorm:"not null"`
 	Assistant string    `json:"assistant" gorm:"default:''"`
-	StartTime time.Time `json:"start_time" gorm:"default:CURRENT_TIMESTAMP"`
-	EndTime   time.Time `json:"end_time" gorm:"default:(CURRENT_TIMESTAMP + INTERVAL 1 DAY)"`
+	StartTime time.Time `json:"start_time" gorm:"type:timestamp;default:CURRENT_TIMESTAMP"`
+	EndTime   time.Time `json:"end_time" gorm:"type:timestamp;default:(CURRENT_TIMESTAMP + INTERVAL 1 DAY)"`
 	TaskType  string    `json:"task_type" gorm:"default:''"`
 	Priority  int       `json:"priority" gorm:"default:3"`
 }
