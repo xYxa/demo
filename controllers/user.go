@@ -255,64 +255,30 @@ func generateHTMLReport(tasks []Task) string {
 	thisMonday := getThisMonday(now)
 	nextMonday := getNextMonday(now)
 
-	// 筛选本周所有任务（基于创建/更新时间）
+	// 筛选本周所有任务（基于 EndTime 是否在本周内）
 	var thisWeekTasks []Task
 	for _, task := range tasks {
-		if task.CreatedAt.After(thisMonday) || task.UpdatedAt.After(thisMonday) {
+		// 如果 EndTime 在本周内（>= 本周一 && < 下周一）
+		if task.EndTime.After(thisMonday) && task.EndTime.Before(nextMonday) {
 			thisWeekTasks = append(thisWeekTasks, task)
 		}
 	}
 
 	// 分离已完成和未完成的任务
-	completedTasks := filterTasks(thisWeekTasks, true)
+	completedTasks := filterTasks(thisWeekTasks, true)        // 本周已完成的任务
+	pendingThisWeekTasks := filterTasks(thisWeekTasks, false) // 本周未完成任务
 
 	// 筛选下周工作计划（未完成且end_time在下周一之后）
-	var pendingTasks []Task
-	for _, task := range tasks { // 注意：这里从所有任务中筛选，而不仅是本周任务
-		if !task.Done && task.EndTime.After(nextMonday) {
-			pendingTasks = append(pendingTasks, task)
+	var nextWeekTasks []Task
+	for _, task := range pendingThisWeekTasks { // 只从本周未完成任务中筛选
+		if task.EndTime.After(nextMonday) {
+			nextWeekTasks = append(nextWeekTasks, task)
 		}
 	}
 
-	// 获取下周一到周五的日期
-	nextWeekDates := getNextWeekDates(now)
+	// 获取下周一到周五的日期（不再用于自动填充）
+	_ = getNextWeekDates(now)
 
-	// 默认的下周工作计划内容
-	defaultPlans := []string{
-		"日常系统巡检与维护",
-		"服务器性能优化与监控",
-		"数据库备份与安全检查",
-		"用户支持与问题处理",
-		"系统更新与补丁应用",
-	}
-
-	// 如果未完成任务不足5条，用默认计划补充
-	for i := len(pendingTasks); i < 5; i++ {
-		planIndex := i % len(defaultPlans)
-		task := Task{
-			Name:      fmt.Sprintf("计划-%d", i+1),
-			Content:   defaultPlans[planIndex],
-			EndTime:   nextWeekDates[i],
-			Uploader:  "系统管理员",
-			Assistant: "运维团队",
-			Priority:  3,
-		}
-		pendingTasks = append(pendingTasks, task)
-	}
-
-	// 如果未完成任务不足5条，用默认计划补充
-	for i := len(pendingTasks); i < 5; i++ {
-		planIndex := i % len(defaultPlans)
-		task := Task{
-			Name:      fmt.Sprintf("计划-%d", i+1),
-			Content:   defaultPlans[planIndex],
-			EndTime:   nextWeekDates[i],
-			Uploader:  "系统管理员",
-			Assistant: "运维团队",
-			Priority:  3,
-		}
-		pendingTasks = append(pendingTasks, task)
-	}
 	// 开始编辑HTML
 	html := `<!DOCTYPE html>
 <html xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
@@ -439,10 +405,10 @@ func generateHTMLReport(tasks []Task) string {
 <td class="xl71">是否需要协助<br/><font class="font30">(下拉菜单选择)</font></td>
 </tr>`
 
-	// Format the date
+	// 填充真实任务数据（不再填充默认任务）
 	fillDate := now.Format("2006年01月02日")
 
-	// Add completed tasks (本周工作总结)
+	// 添加已完成任务（本周工作总结）
 	for i, task := range completedTasks {
 		html += fmt.Sprintf(`
 <tr height="41.67">
@@ -463,8 +429,8 @@ func generateHTMLReport(tasks []Task) string {
 			task.Uploader, task.Assistant)
 	}
 
-	// Add pending tasks (下周工作计划)
-	for i, task := range pendingTasks {
+	// 添加未完成任务（下周工作计划）
+	for i, task := range nextWeekTasks {
 		status := "in-progress"
 		if time.Now().After(task.EndTime) {
 			status = "overdue"
