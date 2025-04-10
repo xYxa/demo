@@ -188,39 +188,46 @@ func (u UserController) DeleteTask(c *gin.Context) {
 // 增强GenerateWeeklyReport函数，支持HTML格式返回
 func (u UserController) GenerateWeeklyReport(c *gin.Context) {
 	// 获取查询参数
-	format := c.DefaultQuery("format", "json") // 默认为json格式
+	format := c.DefaultQuery("format", "json")
 
 	// 获取最近一周的任务数据
 	var tasks []Task
 	oneWeekAgo := time.Now().AddDate(0, 0, -7)
+
+	// 打印查询条件
+	fmt.Printf("[DEBUG] 查询条件: created_at >= %v OR updated_at >= %v\n",
+		oneWeekAgo.Format("2006-01-02 15:04:05"),
+		oneWeekAgo.Format("2006-01-02 15:04:05"))
 
 	if err := dao.Db.Where("created_at >= ? OR updated_at >= ?", oneWeekAgo, oneWeekAgo).Find(&tasks).Error; err != nil {
 		c.JSON(500, gin.H{"error": "获取周报数据失败"})
 		return
 	}
 
+	// 打印获取到的任务总数
+	fmt.Printf("[DEBUG] 获取到 %d 条任务数据\n", len(tasks))
+
+	// 打印每条任务的详细信息
+	for i, task := range tasks {
+		fmt.Printf("[DEBUG] 任务%d: ID=%d, Name=%s, State=%s, Start=%v, End=%v, Done=%v\n",
+			i+1, task.ID, task.Name, task.State,
+			task.StartTime.Format("2006-01-02"),
+			task.EndTime.Format("2006-01-02"),
+			task.Done)
+	}
+
 	// 按格式返回
 	if format == "html" {
-		// 生成HTML格式周报
 		htmlReport := generateHTMLReport(tasks)
 		c.Header("Content-Type", "text/html")
 		c.String(200, htmlReport)
 	} else {
-		// 默认返回JSON格式
 		c.JSON(200, gin.H{
 			"success": true,
 			"data": gin.H{
 				"report_title":    fmt.Sprintf("10.运维服务周报(%d年第%d周)", time.Now().Year(), getWeekOfYear()),
-				"fill_date":       time.Now().Format("2006年01月02日"),
-				"filler":          "系统自动生成",
 				"completed_tasks": filterTasks(tasks, true),
 				"pending_tasks":   filterTasks(tasks, false),
-				"statistics": gin.H{
-					"total":       len(tasks),
-					"completed":   countCompleted(tasks),
-					"in_progress": len(tasks) - countCompleted(tasks),
-					"completion":  fmt.Sprintf("%.1f%%", float64(countCompleted(tasks))/float64(len(tasks))*100),
-				},
 			},
 		})
 	}
@@ -246,38 +253,67 @@ func getNextWeekDates(now time.Time) []time.Time {
 	return dates
 }
 
+// 判断任务是否属于本周
+func isTaskInWeek(task Task, thisMonday, nextMonday time.Time) bool {
+	// 确保时间在同一时区
+	loc := thisMonday.Location()
+	start := task.StartTime.In(loc)
+	end := task.EndTime.In(loc)
+
+	return (task.CreatedAt.After(thisMonday) && task.CreatedAt.Before(nextMonday)) ||
+		(task.UpdatedAt.After(thisMonday) && task.UpdatedAt.Before(nextMonday)) ||
+		(start.Before(nextMonday) && end.After(thisMonday)) || // 跨周任务
+		(start.After(thisMonday) && start.Before(nextMonday)) ||
+		(end.After(thisMonday) && end.Before(nextMonday))
+}
+
 // 生成HTML格式周报
 func generateHTMLReport(tasks []Task) string {
-	now := time.Now()
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	now := time.Now().In(loc)
 	weekNum := getWeekOfYear()
-
-	// 获取本周一和下周一的时间点
 	thisMonday := getThisMonday(now)
 	nextMonday := getNextMonday(now)
 
-	// 筛选本周所有任务（基于 EndTime 是否在本周内）
+	// 调试输出时间范围
+	fmt.Printf("[DEBUG] 本周时间范围（本地时区）: %s 至 %s\n",
+		thisMonday.Format("2006-01-02 15:04:05"),
+		nextMonday.Format("2006-01-02 15:04:05"))
+
+	// 筛选任务
 	var thisWeekTasks []Task
 	for _, task := range tasks {
-		// 如果 EndTime 在本周内（>= 本周一 && < 下周一）
-		if task.EndTime.After(thisMonday) && task.EndTime.Before(nextMonday) {
+		task.StartTime = task.StartTime.In(loc)
+		task.EndTime = task.EndTime.In(loc)
+		if isTaskInWeek(task, thisMonday, nextMonday) {
+			fmt.Printf("[DEBUG] 任务纳入: ID=%d, Name=%s (Start=%s, End=%s)\n",
+				task.ID, task.Name,
+				task.StartTime.Format("2006-01-02"),
+				task.EndTime.Format("2006-01-02"))
 			thisWeekTasks = append(thisWeekTasks, task)
 		}
 	}
 
-	// 分离已完成和未完成的任务
-	completedTasks := filterTasks(thisWeekTasks, true)        // 本周已完成的任务
-	pendingThisWeekTasks := filterTasks(thisWeekTasks, false) // 本周未完成任务
-
-	// 筛选下周工作计划（未完成且end_time在下周一之后）
+	// 分离本周任务和下周任务
+	var currentWeekTasks []Task
 	var nextWeekTasks []Task
-	for _, task := range pendingThisWeekTasks { // 只从本周未完成任务中筛选
+
+	for _, task := range thisWeekTasks {
 		if task.EndTime.After(nextMonday) {
 			nextWeekTasks = append(nextWeekTasks, task)
+		} else {
+			currentWeekTasks = append(currentWeekTasks, task)
 		}
 	}
 
 	// 获取下周一到周五的日期（不再用于自动填充）
 	_ = getNextWeekDates(now)
+
+	fmt.Printf("本周任务数量: %d\n", len(thisWeekTasks))
+	for i, task := range thisWeekTasks {
+		fmt.Printf("任务%d: Name=%s, Content=%s, Start=%v, End=%v\n",
+			i+1, task.Name, task.Content, task.StartTime, task.EndTime)
+	}
 
 	// 开始编辑HTML
 	html := `<!DOCTYPE html>
@@ -405,75 +441,54 @@ func generateHTMLReport(tasks []Task) string {
 <td class="xl71">是否需要协助<br/><font class="font30">(下拉菜单选择)</font></td>
 </tr>`
 
-	// 填充真实任务数据（不再填充默认任务）
-	fillDate := now.Format("2006年01月02日")
-
-	// 添加已完成任务（本周工作总结）
-	for i, task := range completedTasks {
+	// 填充本周工作总结
+	html += `<!-- 表格标题行 -->`
+	for i, task := range currentWeekTasks {
 		html += fmt.Sprintf(`
-<tr height="41.67">
-<td class="xl75">%d</td>
-<td class="xl76" colspan="3">%s</td>
-<td class="xl79">%s</td>
-<td class="xl79">%s</td>
-<td class="xl79 completed">已完成</td>
-<td class="xl75">%d</td>
-<td class="xl76" colspan="4">%s</td>
-<td class="xl91">%s</td>
-<td class="xl79">%s</td>
-<td class="xl79">%s</td>
-<td class="xl92">否</td>
-</tr>`,
-			i+1, task.Name, task.Uploader, task.Assistant,
-			i+1, task.Content, task.EndTime.Format("2006年01月02日"),
-			task.Uploader, task.Assistant)
+    <tr height="41.67">
+        <td class="xl75">%d</td>
+        <td class="xl76" colspan="3">%s</td>
+        <td class="xl79">%s</td>
+        <td class="xl79">%s</td>
+        <td class="xl79 %s">%s</td>
+        <td class="xl75">-</td>  <!-- 下周部分留空 -->
+        <td class="xl76" colspan="4">-</td>
+        <td class="xl91">-</td>
+        <td class="xl79">-</td>
+        <td class="xl79">-</td>
+        <td class="xl92">-</td>
+    </tr>`,
+			i+1,
+			task.Name,
+			task.Uploader,
+			task.Assistant,
+			getTaskStatusClass(task),
+			getTaskStatus(task))
 	}
 
-	// 添加未完成任务（下周工作计划）
+	// 填充下周工作计划
+	html += `<!-- 下周计划标题行 -->`
 	for i, task := range nextWeekTasks {
-		status := "in-progress"
-		if time.Now().After(task.EndTime) {
-			status = "overdue"
-		}
-
 		html += fmt.Sprintf(`
-<tr height="41.67">
-<td class="xl75">%d</td>
-<td class="xl76" colspan="3">%s</td>
-<td class="xl79">%s</td>
-<td class="xl79">%s</td>
-<td class="xl79 %s">%s</td>
-<td class="xl75">%d</td>
-<td class="xl76" colspan="4">%s</td>
-<td class="xl91">%s</td>
-<td class="xl79">%s</td>
-<td class="xl79">%s</td>
-<td class="xl92">%s</td>
-</tr>`,
-			len(completedTasks)+i+1, task.Name, task.Uploader, task.Assistant,
-			status, getTaskStatus(task),
-			len(completedTasks)+i+1, task.Content,
+    <tr height="41.67">
+        <td class="xl75">-</td>
+        <td class="xl76" colspan="3">-</td>
+        <td class="xl79">-</td>
+        <td class="xl79">-</td>
+        <td class="xl79 pending">进行中</td>
+        <td class="xl75">%d</td>
+        <td class="xl76" colspan="4">%s</td>  <!-- 显示任务名称 -->
+        <td class="xl91">%s</td>
+        <td class="xl79">%s</td>
+        <td class="xl79">%s</td>
+        <td class="xl92">%s</td>
+    </tr>`,
+			i+1,
+			task.Name, // 确保显示任务名称
 			task.EndTime.Format("2006年01月02日"),
-			task.Uploader, task.Assistant,
+			task.Uploader,
+			task.Assistant,
 			getAssistanceNeeded(task))
-	}
-
-	// Fill empty rows to match template format
-	for i := len(tasks); i < 6; i++ {
-		html += fmt.Sprintf(`
-<tr height="33.58">
-<td class="xl75">%d</td>
-<td class="xl76" colspan="3"></td>
-<td class="xl79"></td>
-<td class="xl79"></td>
-<td class="xl79"></td>
-<td class="xl75">%d</td>
-<td class="xl76" colspan="4"></td>
-<td class="xl91"></td>
-<td class="xl93"></td>
-<td class="xl79"></td>
-<td class="xl92"></td>
-</tr>`, i+1, i+1)
 	}
 
 	// Add problems section
@@ -577,7 +592,7 @@ func generateHTMLReport(tasks []Task) string {
 </body>
 </html>`
 
-	return fmt.Sprintf(html, now.Year(), weekNum, fillDate)
+	return fmt.Sprintf(html, now.Year(), weekNum)
 }
 
 func getThisMonday(now time.Time) time.Time {
@@ -645,12 +660,22 @@ func getTaskStatus(task Task) string {
 		return "已完成"
 	}
 	if time.Now().After(task.EndTime) {
-		return "超期未完成"
+		return "超期未完成" // 必须返回字符串
 	}
 	return "进行中"
 }
 
-// 辅助函数：获取当前是第几周
+func getTaskStatusClass(task Task) string {
+	if task.Done {
+		return "completed"
+	}
+	if time.Now().After(task.EndTime) {
+		return "overdue" // 必须返回字符串
+	}
+	return "pending"
+}
+
+// 辅助函数：获取当前是第几周（ISO 8601 标准）
 func getWeekOfYear() int {
 	_, week := time.Now().ISOWeek()
 	return week
